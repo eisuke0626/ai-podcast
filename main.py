@@ -1,5 +1,7 @@
 import os
 import datetime
+import json  # 追加: 履歴データを管理するため
+import glob  # 追加: フォルダ内の古いMP3ファイルを探すため
 from email.utils import formatdate
 from dotenv import load_dotenv
 from google import genai
@@ -47,7 +49,7 @@ def generate_podcast_script(news_text, topic="SAP関連"):
     ・ニュースはただ読み上げるのではなく、ニュースキャスターのように分かりやすく自然な話し言葉で要約すること。
     ・読むと約1〜2分程度になる長さ（400〜600文字程度）にまとめること。
     ・【重要】音声合成エンジンが記号を誤読してしまうため、**や#などのマークダウン記法、および特殊記号は一切使用しないこと。すべてプレーンな日本語テキストで記述すること。
-    ・最後は長々としたポエムのような文章は避け、「それでは、今日も一日頑張りましょう。いってらっしゃい！」のような, 短くシンプルな一言のみで締めくくること。
+    ・最後は長々としたポエムのような文章は避け、「それでは、今日も一日頑張りましょう。いってらっしゃい！」のような、短くシンプルな一言のみで締めくくること。
     """
     
     prompt = f"{system_instruction}\n\n{news_text}"
@@ -59,8 +61,8 @@ def generate_podcast_script(news_text, topic="SAP関連"):
     return response.text
 
 # --- タスク2-3: 音声化(Google TTS)モジュール ---
-def synthesize_audio(script_text, output_filename="podcast.mp3"):
-    print("🎙️ ラジオパーソナリティが音声を収録中（Google TTS）...")
+def synthesize_audio(script_text, output_filepath):
+    print(f"🎙️ ラジオパーソナリティが音声を収録中（Google TTS）: {output_filepath}")
     client = texttospeech.TextToSpeechClient()
     synthesis_input = texttospeech.SynthesisInput(text=script_text)
     voice = texttospeech.VoiceSelectionParams(
@@ -73,31 +75,73 @@ def synthesize_audio(script_text, output_filename="podcast.mp3"):
     response = client.synthesize_speech(
         input=synthesis_input, voice=voice, audio_config=audio_config
     )
-    with open(output_filename, "wb") as out:
+    with open(output_filepath, "wb") as out:
         out.write(response.audio_content)
-    print(f"🎵 音声ファイル【{output_filename}】の生成が完了しました！")
+    print("🎵 音声ファイルの生成が完了しました！")
 
-# --- タスク2-4: RSSフィード生成モジュール（完全自動化版） ---
-def generate_rss(script_text, topic="SAP関連", mp3_filename="podcast.mp3", image_filename="podcast-art.png"):
-    """ RSSに番組画像と、各エピソードの説明欄（台本テキスト）を追加する """
-    print("📻 RSSフィード(feed.xml)を生成中...")
+# --- タスク2-4: アーカイブ管理＆RSSフィード生成モジュール ---
+def manage_episodes_and_rss(script_text, topic, new_mp3_filename, image_filename="podcast-art.png"):
+    print("📻 エピソード履歴の更新とRSSフィード(feed.xml)を生成中...")
     
-    # GitHub Actionsまたは.envから「ユーザー名/リポジトリ名」の形（例: owner/repo）で自動取得
     repo_env = os.getenv("GITHUB_REPOSITORY")
-    
     if repo_env and "/" in repo_env:
-        # スラッシュで分割して自動的に変数に代入
         github_username, repo_name = repo_env.split("/")
     else:
-        # 万が一取得できなかった場合のセーフティ
-        print("⚠️ GITHUB_REPOSITORY環境変数が見つかりません。")
         github_username = "default_user"
         repo_name = "default_repo"
         
     base_url = f"https://{github_username}.github.io/{repo_name}"
-    today_str = datetime.datetime.now().strftime("%Y年%m月%d日")
+    
+    now = datetime.datetime.now()
+    today_str = now.strftime("%Y年%m月%d日")
     pub_date = formatdate(localtime=False) 
     
+    # 1. 過去のエピソード履歴（JSON）を読み込む
+    history_file = "public/episodes.json"
+    if os.path.exists(history_file):
+        with open(history_file, "r", encoding="utf-8") as f:
+            episodes = json.load(f)
+    else:
+        episodes = []
+        
+    # 2. 新しいエピソードをリストの先頭に追加
+    new_episode = {
+        "title": f"{today_str}のニュース（{topic}）",
+        "mp3_filename": new_mp3_filename,
+        "pub_date": pub_date,
+        "guid": f"{base_url}/{new_mp3_filename}?t={int(now.timestamp())}",
+        "script_text": script_text
+    }
+    episodes.insert(0, new_episode)
+    
+    # 3. リストを最新30件に絞り込む（ここで古いデータが弾かれる）
+    episodes = episodes[:30]
+    
+    # 4. 更新した履歴をJSONに保存する
+    with open(history_file, "w", encoding="utf-8") as f:
+        json.dump(episodes, f, ensure_ascii=False, indent=2)
+        
+    # 5. publicフォルダ内をチェックし、履歴に残っていない古いMP3ファイルを物理削除する
+    allowed_mp3s = [ep["mp3_filename"] for ep in episodes]
+    for mp3_path in glob.glob("public/podcast_*.mp3"):
+        filename = os.path.basename(mp3_path)
+        if filename not in allowed_mp3s:
+            os.remove(mp3_path)
+            print(f"🗑️ 容量節約のため、古いファイル {filename} を削除しました。")
+            
+    # 6. 最新の履歴データをもとに、RSSフィード（XML）を組み立てる
+    items_xml = ""
+    for ep in episodes:
+        items_xml += f"""
+    <item>
+      <title>{ep['title']}</title>
+      <enclosure url="{base_url}/{ep['mp3_filename']}" type="audio/mpeg" length="1000000"/>
+      <pubDate>{ep['pub_date']}</pubDate>
+      <guid>{ep['guid']}</guid>
+      <description><![CDATA[{ep['script_text']}]]></description>
+      <itunes:summary><![CDATA[{ep['script_text']}]]></itunes:summary>
+    </item>"""
+
     rss_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
   <channel>
@@ -105,21 +149,14 @@ def generate_rss(script_text, topic="SAP関連", mp3_filename="podcast.mp3", ima
     <link>{base_url}</link>
     <description>Geminiが毎朝お届けする最新ニュースの要約ポッドキャストです。</description>
     <language>ja</language>
-    <itunes:image href="{base_url}/{image_filename}"/>
-    <item>
-      <title>{today_str}のニュース（{topic}）</title>
-      <enclosure url="{base_url}/{mp3_filename}" type="audio/mpeg" length="1000000"/>
-      <pubDate>{pub_date}</pubDate>
-      <guid>{base_url}/{mp3_filename}?t={datetime.datetime.now().timestamp()}</guid>
-      <description><![CDATA[{script_text}]]></description>
-      <itunes:summary><![CDATA[{script_text}]]></itunes:summary>
-    </item>
+    <itunes:image href="{base_url}/{image_filename}"/>{items_xml}
   </channel>
 </rss>"""
 
-    with open("feed.xml", "w", encoding="utf-8") as f:
+    with open("public/feed.xml", "w", encoding="utf-8") as f:
         f.write(rss_content)
-    print(f"✅ RSSフィードの生成が完了しました！ (配信元: {base_url})")
+    print(f"✅ RSSフィードの生成が完了しました！ (現在 {len(episodes)} 件のエピソードを配信中)")
+
 
 # --- メイン処理 ---
 if __name__ == "__main__":
@@ -128,14 +165,24 @@ if __name__ == "__main__":
     # ==========================================
     TARGET_TOPIC_KEYWORD = "SAP"   
     DISPLAY_TOPIC_NAME   = "SAP関連" 
-    IMAGE_FILE_NAME      = "podcast-art.png" # チャンネル画像用のファイル名（固定）
+    IMAGE_FILE_NAME      = "podcast-art.png" 
     # ==========================================
+
+    # 出力先となる「public」フォルダを作成
+    os.makedirs("public", exist_ok=True)
+    
+    # 毎回上書きされないように、日付と時刻を入れた固有のファイル名を生成 (例: podcast_20260705_083000.mp3)
+    now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    new_mp3_filename = f"podcast_{now_str}.mp3"
+    output_filepath = f"public/{new_mp3_filename}"
 
     raw_news = get_latest_news_via_gemini(query=TARGET_TOPIC_KEYWORD, limit=5)
     script_text = generate_podcast_script(raw_news, topic=DISPLAY_TOPIC_NAME)
-    synthesize_audio(script_text, output_filename="podcast.mp3")
     
-    # 引数に script_text と IMAGE_FILE_NAME を渡すように変更
-    generate_rss(script_text=script_text, topic=DISPLAY_TOPIC_NAME, mp3_filename="podcast.mp3", image_filename=IMAGE_FILE_NAME)
+    # 音声の保存先を output_filepath に変更
+    synthesize_audio(script_text, output_filepath=output_filepath)
+    
+    # アーカイブ管理とRSSの生成を実行
+    manage_episodes_and_rss(script_text=script_text, topic=DISPLAY_TOPIC_NAME, new_mp3_filename=new_mp3_filename, image_filename=IMAGE_FILE_NAME)
     
     print("🎉 すべての処理が完了しました！")

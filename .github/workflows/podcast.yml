@@ -13,8 +13,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: コードを取得
+    - name: コードを取得 (mainブランチ)
       uses: actions/checkout@v4
+
+    # ★追加：Pythonが履歴を参照できるように、過去の配信データを取り寄せる
+    - name: 過去の配信データを取得 (gh-pagesブランチ)
+      uses: actions/checkout@v4
+      with:
+        ref: gh-pages
+        path: public
+      continue-on-error: true # 初回等で過去データがない場合のエラーを防ぐ
 
     - name: Pythonのセットアップ
       uses: actions/setup-python@v5
@@ -30,19 +38,17 @@ jobs:
       run: |
         echo '${{ secrets.GCP_TTS_KEY_JSON }}' > tts-key.json
 
+    # ★変更：処理の順番を整理。Python実行前に公開フォルダと画像を準備する
+    - name: フォルダ準備と画像コピー
+      run: |
+        mkdir -p public
+        if [ -f podcast-art.png ]; then cp podcast-art.png public/; fi
+
     - name: ポッドキャスト生成スクリプトの実行
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         GOOGLE_APPLICATION_CREDENTIALS: "tts-key.json"
       run: python main.py
-
-    # 変更：もし画像ファイルがあれば公開フォルダに一緒にコピーする処理を追加
-    - name: 公開用フォルダの準備
-      run: |
-        mkdir public
-        mv podcast.mp3 public/
-        mv feed.xml public/
-        if [ -f podcast-art.png ]; then cp podcast-art.png public/; fi
 
     - name: GitHub Pagesへデプロイ
       uses: peaceiris/actions-gh-pages@v3
@@ -50,4 +56,5 @@ jobs:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: ./public
         publish_branch: gh-pages
+        # force_orphan: true は維持します。これによりGitの重い履歴が圧縮され、容量超過を完璧に防げます。
         force_orphan: true
