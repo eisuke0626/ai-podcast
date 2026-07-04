@@ -1,2 +1,11 @@
+# 環境変数や認証キー
 .env
 *.json
+
+# 生成される音声ファイル
+*.mp3
+podcast.mp3
+
+# Pythonのキャッシュファイル等
+__pycache__/
+*.pyc
