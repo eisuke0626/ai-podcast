@@ -13,7 +13,8 @@ print("🔍 利用可能なモデル一覧を取得中...\n")
 try:
     for model in client.models.list():
         # 名前の中に 'flash' が含まれるモデルだけを絞り込んで表示
-        if 'flash' in model.name:
+        # if 'flash' in model.name:
+        if 'pro' in model.name:
             print(f"・ {model.name}")
     print("\n✅ 取得完了！")
 except Exception as e:

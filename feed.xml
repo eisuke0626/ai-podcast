@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>あなた専用 AIニュース</title>
+    <link>https://eisuke0626.github.io/ai-podcast</link>
+    <description>Geminiが毎朝お届けする最新ニュースの要約ポッドキャストです。</description>
+    <language>ja</language>
+    <item>
+      <title>2026年07月05日のニュース（SAP関連）</title>
+      <enclosure url="https://eisuke0626.github.io/ai-podcast/podcast.mp3" type="audio/mpeg" length="1000000"/>
+      <pubDate>Sat, 04 Jul 2026 15:33:04 -0000</pubDate>
+      <guid>https://eisuke0626.github.io/ai-podcast/podcast.mp3?t=1783179184.854732</guid>
+    </item>
+  </channel>
+</rss>
