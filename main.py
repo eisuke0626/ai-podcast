@@ -4,6 +4,7 @@ import datetime  # 追加: 実行時の日付を自動取得するためのラ�
 from dotenv import load_dotenv
 from google import genai
 from google.cloud import texttospeech  # 追加: Google Cloud TTSライブラリ
+from email.utils import formatdate # 追加: RSS用の日時フォーマット
 
 # --- 準備 ---
 load_dotenv()
@@ -93,6 +94,40 @@ def synthesize_audio(script_text, output_filename="podcast.mp3"):
         
     print(f"🎵 音声ファイル【{output_filename}】の生成が完了しました！")
 
+# --- タスク2-4: RSSフィード生成モジュール ---
+def generate_rss(mp3_filename="podcast.mp3"):
+    """ iPhoneのポッドキャストアプリに読み込ませるためのRSS(XML)を生成する """
+    print("📻 RSSフィード(feed.xml)を生成中...")
+    
+    # ★ここをご自身の情報に書き換えてください
+    github_username = "eisuke0626" 
+    repo_name = "ai-podcast"
+    
+    base_url = f"https://{github_username}.github.io/{repo_name}"
+    
+    today_str = datetime.datetime.now().strftime("%Y年%m月%d日")
+    pub_date = formatdate(localtime=False) # ポッドキャスト必須の時刻フォーマット
+    
+    rss_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>あなた専用 AIニュース</title>
+    <link>{base_url}</link>
+    <description>Geminiが毎朝お届けする最新ニュースの要約ポッドキャストです。</description>
+    <language>ja</language>
+    <item>
+      <title>{today_str}のニュース</title>
+      <enclosure url="{base_url}/{mp3_filename}" type="audio/mpeg" length="1000000"/>
+      <pubDate>{pub_date}</pubDate>
+      <guid>{base_url}/{mp3_filename}?t={datetime.datetime.now().timestamp()}</guid>
+    </item>
+  </channel>
+</rss>"""
+
+    with open("feed.xml", "w", encoding="utf-8") as f:
+        f.write(rss_content)
+    print("✅ RSSフィードの生成が完了しました！")
+
 # --- メイン処理 ---
 if __name__ == "__main__":
     # 1. ニュースの取得
@@ -107,4 +142,7 @@ if __name__ == "__main__":
     # 3. 台本の音声化
     synthesize_audio(script_text, output_filename="podcast.mp3")
     
+    # 4.  最後にRSSを生成する処理を追加
+    generate_rss()
+
     print("✅ すべての処理が完了しました！")

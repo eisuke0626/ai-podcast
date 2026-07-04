@@ -1,11 +1,13 @@
 name: Daily AI Podcast
 
-# 実行されるタイミングの設定
 on:
   schedule:
-    # 毎日 UTCの21:00（日本時間の朝6:00）に実行
     - cron: '0 21 * * *'
-  workflow_dispatch: # GitHubの画面から手動で実行できるボタンも用意
+  workflow_dispatch:
+
+# ★追加: リポジトリに公開用ファイルを書き込む権限
+permissions:
+  contents: write 
 
 jobs:
   build:
@@ -35,9 +37,18 @@ jobs:
         GOOGLE_APPLICATION_CREDENTIALS: "tts-key.json"
       run: python main.py
 
-    - name: 完成したMP3を保存
-      uses: actions/upload-artifact@v4
+    # ★変更: ZIP化をやめ、公開用のpublicフォルダにMP3とXMLを移動
+    - name: 公開用フォルダの準備
+      run: |
+        mkdir public
+        mv podcast.mp3 public/
+        mv feed.xml public/
+
+    # ★追加: GitHub Pages (gh-pagesブランチ) へ自動公開
+    - name: GitHub Pagesへデプロイ
+      uses: peaceiris/actions-gh-pages@v3
       with:
-        name: daily-podcast-audio
-        path: podcast.mp3
-        retention-days: 1 # 容量節約のため、1日で消える設定
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./public
+        publish_branch: gh-pages
+        force_orphan: true # 容量節約のため、過去のMP3履歴は消去して最新のみ保持
