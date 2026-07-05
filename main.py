@@ -40,12 +40,13 @@ def generate_podcast_script(news_text, topic="SAP関連"):
     today = datetime.datetime.now()
     date_str = f"{today.month}月{today.day}日"
     
+    # 修正点: 冒頭の指定から（{topic}）を削除しました
     system_instruction = f"""
     あなたはプロのラジオパーソナリティです。
     提供されたニュース素材をもとに、リスナーが朝の通勤中や作業の準備中に心地よく聴けるポッドキャストの台本を作成してください。
     
     【条件】
-    ・冒頭は必ず「{date_str}のニュース（{topic}）をお伝えします。」という一文のみで始めること。他の挨拶や自己紹介は絶対に含めないこと。
+    ・冒頭は必ず「{date_str}のニュースをお伝えします。」という一文のみで始めること。テーマ名（{topic}など）や他の挨拶、自己紹介は絶対に含めないこと。
     ・ニュースはただ読み上げるのではなく、ニュースキャスターのように分かりやすく自然な話し言葉で要約すること。
     ・読むと約1〜2分程度になる長さ（400〜600文字程度）にまとめること。
     ・【重要】音声合成エンジンが記号を誤読してしまうため、**や#などのマークダウン記法、および特殊記号は一切使用しないこと。すべてプレーンな日本語テキストで記述すること。
@@ -101,12 +102,16 @@ def manage_episodes_and_rss(script_text, topic, new_mp3_filename, image_filename
     if os.path.exists(history_file):
         with open(history_file, "r", encoding="utf-8") as f:
             episodes = json.load(f)
+            # ★追加: 過去の蓄積データからも「（SAP関連）」や「(SAP)」を一括で消去してクレンジングします
+            for ep in episodes:
+                ep["title"] = ep["title"].replace(f"（{topic}）", "").replace(f"({topic})", "").replace("（SAP関連）", "").replace("(SAP)", "").strip()
     else:
         episodes = []
         
     # 2. 新しいエピソードをリストの先頭に追加
+    # 修正点: タイトル文字列から（{topic}）を除外しました
     new_episode = {
-        "title": f"{today_str}のニュース（{topic}）",
+        "title": f"{today_str}のニュース",
         "mp3_filename": new_mp3_filename,
         "pub_date": pub_date,
         "guid": f"{base_url}/{new_mp3_filename}?t={int(now.timestamp())}",
