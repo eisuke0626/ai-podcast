@@ -12,16 +12,23 @@ from google.cloud import texttospeech
 load_dotenv()
 gemini_key = os.getenv("GEMINI_API_KEY")
 
-# --- タスク2-1: Gemini Proによるニュース検索・生成モジュール ---
-def get_latest_news_via_gemini(query="SAP", limit=5):
-    print(f"🤖 Gemini Proが「{query}」に関する最新ニュースをWeb検索中...")
+# --- 【統合】Gemini Proによるニュース検索＆台本生成モジュール ---
+def generate_podcast_script_via_pro(query="SAP", limit=5):
+    print(f"🤖 Gemini Proが「{query}」の最新ニュースを検索し、ラジオ台本を執筆中...")
     client = genai.Client(api_key=gemini_key)
     
+    # 検索、詳細な情報収集、そして「話し言葉への変換」を1つのプロンプトに集約
     prompt = f"""
     最新の「{query}」に関するニュース、技術アップデート、プレスリリース、または重要な動向を検索してください。
     検索結果から、特に重要と思われるトピックを最大{limit}個選んでください。
-    各トピックについて、単なるタイトルや結論だけでなく、そのニュースの【背景】【技術的な詳細】【今後の影響・展望】も含めて、情報量を豊富に詳しくまとめてください。
-    ※出力はニュースの事実（詳細な記述）のみとし、挨拶や「検索した結果〜」のような前置き、まとめの言葉は一切含めないでください。
+    
+    選んだニュースをもとに、プロのラジオパーソナリティがキャスターのように分かりやすく自然な話し言葉で解説する、ポッドキャストの「本編原稿」を作成してください。
+    
+    【原稿作成の条件】
+    ・各トピックの【背景】【具体的な内容】【今後の影響や展望】を深く掘り下げ、聴き応えのある内容にすること。
+    ・全体の長さは、読むと約3〜4分程度になるボリューム（1000〜1200文字程度）にしっかりと肉付けすること。
+    ・【最重要】音声合成エンジンが記号を誤読するのを防ぐため、**や#などのマークダウン記法、および「・」や「-」などの箇条書き記号、特殊記号は一切使用しないこと。段落を分け、すべて滑らかな日本語の文章（プレーンテキスト）で記述すること。
+    ・冒頭の挨拶（〇月〇日のニュースなど）や、終わりの挨拶（いってらっしゃいなど）は、システム側で自動挿入するため、原稿内には絶対に含めないこと。ニュースの本編のみを出力してください。
     """
     
     response = client.models.generate_content(
@@ -33,43 +40,12 @@ def get_latest_news_via_gemini(query="SAP", limit=5):
     )
     return response.text
 
-# --- タスク2-2: Gemini AI要約・台本作成モジュール ---
-def generate_podcast_script(news_text, topic="SAP関連"):
-    print("🤖 Gemini Flashがラジオ台本を執筆中...")
-    client = genai.Client(api_key=gemini_key)
-    
-    today = datetime.datetime.now()
-    date_str = f"{today.month}月{today.day}日"
-    
-    system_instruction = f"""
-    あなたはプロのラジオパーソナリティです。
-    提供された豊富なニュース素材をもとに、リスナーが朝の通勤中や作業の準備中に聴き応えを感じられるポッドキャストの台本を作成してください。
-    
-    【条件】
-    ・冒頭は必ず「{date_str}のニュースをお伝えします。」という一文のみで始めること。テーマ名（{topic}など）や他の挨拶、自己紹介は絶対に含めないこと。
-    ・ニュースをただ簡潔に読み上げるのではなく、ニュースキャスターのように分かりやすく自然な話し言葉で、それぞれのトピックの背景や具体的な内容、影響などを深く掘り下げて解説すること。
-    ・読むと約3〜4分程度になる長さ（1000〜1200文字程度）にしっかりとボリュームを持たせてまとめること。
-    ・【重要】音声合成エンジンが記号を誤読してしまうため、**や#などのマークダウン記法、および特殊記号は一切使用しないこと。すべてプレーンな日本語テキストで記述すること。
-    ・最後は長々としたポエムのような文章は避け、「それでは、今日も一日頑張りましょう。いってらっしゃい！」のような、短くシンプルな一言のみで締めくくること。
-    """
-    
-    prompt = f"{system_instruction}\n\n{news_text}"
-    
-    response = client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=prompt,
-    )
-    return response.text
-
-# --- タスク2-3: 音声化(Google TTS)モジュール（5000バイト制限突破版） ---
+# --- タスク2-3: 音声化(Google TTS)モジュール ---
 def synthesize_audio(script_text, output_filepath):
     print(f"🎙️ ラジオパーソナリティが音声を収録中（Google TTS）: {output_filepath}")
     client = texttospeech.TextToSpeechClient()
     
-    # 5,000バイト制限を絶対に超えないよう、安全を見て「1リクエストあたり1,000文字」で区切る
     max_chars = 1000
-    
-    # 句点「。」で原稿を区切り、1000文字以下に収まるようにチャンク（塊）を生成
     sentences = script_text.split("。")
     chunks = []
     current_chunk = ""
@@ -77,10 +53,7 @@ def synthesize_audio(script_text, output_filepath):
     for sentence in sentences:
         if not sentence.strip():
             continue
-        # 分割時に消えた句点「。」を復元
         test_sentence = sentence + "。"
-        
-        # 現在の塊に足すと1000文字を超える場合は、そこで一旦区切る
         if len(current_chunk) + len(test_sentence) > max_chars:
             chunks.append(current_chunk)
             current_chunk = test_sentence
@@ -90,7 +63,6 @@ def synthesize_audio(script_text, output_filepath):
     if current_chunk:
         chunks.append(current_chunk)
         
-    # 分割したテキストを順次APIに送り、バイナリを結合していく
     combined_audio_content = b""
     
     for idx, chunk in enumerate(chunks):
@@ -106,10 +78,8 @@ def synthesize_audio(script_text, output_filepath):
         response = client.synthesize_speech(
             input=synthesis_input, voice=voice, audio_config=audio_config
         )
-        # バイナリデータ（bytes）を末尾に結合
         combined_audio_content += response.audio_content
         
-    # 最終的に合体したすべての音声データをファイルとして書き出す
     with open(output_filepath, "wb") as out:
         out.write(combined_audio_content)
     print("🎵 すべてのパートの統合および音声ファイルの生成が完了しました！")
@@ -205,10 +175,21 @@ if __name__ == "__main__":
     new_mp3_filename = f"podcast_{now_str}.mp3"
     output_filepath = f"public/{new_mp3_filename}"
 
-    raw_news = get_latest_news_via_gemini(query=TARGET_TOPIC_KEYWORD, limit=5)
-    script_text = generate_podcast_script(raw_news, topic=DISPLAY_TOPIC_NAME)
+    # 1. Gemini Proで検索から台本（本編）作成までを一撃で実行
+    body_text = generate_podcast_script_via_pro(query=TARGET_TOPIC_KEYWORD, limit=5)
     
-    synthesize_audio(script_text, output_filepath=output_filepath)
-    manage_episodes_and_rss(script_text=script_text, topic=DISPLAY_TOPIC_NAME, new_mp3_filename=new_mp3_filename, image_filename=IMAGE_FILE_NAME)
+    # 2. 定型文（挨拶など）をPython側で完全固定してドッキング
+    today = datetime.datetime.now()
+    date_str = f"{today.month}月{today.day}日"
     
-    print("🎉 すべての処理が完了しました！")
+    opening = f"{date_str}のニュースをお伝えします。\n\n"
+    closing = "\n\nそれでは、今日も一日頑張りましょう。いってらっしゃい！"
+    
+    # 最終的な台本テキストを完成させる
+    final_script_text = opening + body_text + closing
+
+    # 音声合成とアーカイブ管理を実行
+    synthesize_audio(final_script_text, output_filepath=output_filepath)
+    manage_episodes_and_rss(script_text=final_script_text, topic=DISPLAY_TOPIC_NAME, new_mp3_filename=new_mp3_filename, image_filename=IMAGE_FILE_NAME)
+    
+    print("🎉 スマート化されたすべての処理が完了しました！")
