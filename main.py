@@ -163,23 +163,30 @@ def manage_episodes_and_rss(script_text, new_mp3_filename, image_filename="podca
 if __name__ == "__main__":
     IMAGE_FILE_NAME = "podcast-art.png" 
 
-    # ★追加: 日本時間の曜日を取得し、今日の検索テーマを決定する
-    now_jst = datetime.datetime.now(JST)
-    weekday = now_jst.weekday() # 0:月, 1:火, 2:水, 3:木, 4:金, 5:土, 6:日
+# 1. まずGitHub Actionsの手動入力（環境変数）があるかチェックする
+    # ※ワークフロー側から「INPUT_MANUAL_TOPIC」という名前で値が渡ってきます
+    manual_topic = os.getenv("INPUT_MANUAL_TOPIC", "auto")
     
-    daily_topics = {
-        0: "SAP関連",
-        1: "コンサル業界関連",
-        2: "AI関連",
-        3: "海外IT業界関連",
-        4: "日本国内IT業界関連",
-        5: "ビジネスパーソンが知っておくべき最新の海外",
-        6: "ビジネスパーソンが知っておくべき最新の日本国内"
-    }
-    
-    # 今日のテーマを決定
-    TARGET_TOPIC_KEYWORD = daily_topics[weekday]
-    print(f"📅 本日（{now_jst.strftime('%A')}）の配信テーマ: {TARGET_TOPIC_KEYWORD}ニュース")
+    if manual_topic and manual_topic != "auto":
+        # 手動でテーマが選ばれている場合は、曜日を無視してそれを使う
+        TARGET_TOPIC_KEYWORD = manual_topic
+        print(f"🎛️ GitHubからの手動指定による配信テーマ: {TARGET_TOPIC_KEYWORD}ニュース")
+    else:
+        # 通常の自動実行（または手動でautoが選ばれた）場合は、日本時間の曜日から決定する
+        now_jst = datetime.datetime.now(JST)
+        weekday = now_jst.weekday() # 0:月, 1:火, ...
+        
+        daily_topics = {
+            0: "SAP関連",
+            1: "コンサル業界関連",
+            2: "AI関連",
+            3: "海外IT業界関連",
+            4: "日本国内IT業界関連",
+            5: "ビジネスパーソンが知っておくべき最新の海外",
+            6: "ビジネスパーソンが知っておくべき最新の日本国内"
+        }
+        TARGET_TOPIC_KEYWORD = daily_topics[weekday]
+        print(f"📅 定期自動配信によるテーマ（{now_jst.strftime('%A')}）: {TARGET_TOPIC_KEYWORD}ニュース")
 
     os.makedirs("public", exist_ok=True)
     

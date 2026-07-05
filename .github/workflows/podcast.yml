@@ -3,7 +3,22 @@ name: Daily AI Podcast
 on:
   schedule:
     - cron: '0 21 * * *'
-  workflow_dispatch:
+  workflow_dispatch: # 手動実行を許可
+      inputs:
+        manual_topic:
+          description: '配信したいニュースのテーマを選択（空欄なら今日の曜日のテーマ）'
+          required: false
+          default: 'auto'
+          type: choice
+          options:
+            - 'auto'
+            - 'SAP関連'
+            - 'コンサル業界関連'
+            - 'AI関連'
+            - '海外IT業界関連'
+            - '日本国内IT業界関連'
+            - 'ビジネスパーソンが知っておくべき最新の海外'
+            - 'ビジネスパーソンが知っておくべき最新の日本国内'
 
 permissions:
   contents: write 
