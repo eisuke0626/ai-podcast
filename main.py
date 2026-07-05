@@ -1,7 +1,7 @@
 import os
 import datetime
-import json  # 履歴データを管理するため
-import glob  # フォルダ内の古いMP3ファイルを探すため
+import json
+import glob
 from email.utils import formatdate
 from dotenv import load_dotenv
 from google import genai
@@ -12,12 +12,14 @@ from google.cloud import texttospeech
 load_dotenv()
 gemini_key = os.getenv("GEMINI_API_KEY")
 
+# ★追加: サーバーの場所に関わらず、常に日本時間(JST)を基準にするための設定
+JST = datetime.timezone(datetime.timedelta(hours=+9), 'JST')
+
 # --- 【統合】Gemini Proによるニュース検索＆台本生成モジュール ---
 def generate_podcast_script_via_pro(query="SAP", limit=5):
     print(f"🤖 Gemini Proが「{query}」の最新ニュースを検索し、ラジオ台本を執筆中...")
     client = genai.Client(api_key=gemini_key)
     
-    # 検索、詳細な情報収集、そして「話し言葉への変換」を1つのプロンプトに集約
     prompt = f"""
     最新の「{query}」に関するニュース、技術アップデート、プレスリリース、または重要な動向を検索してください。
     検索結果から、特に重要と思われるトピックを最大{limit}個選んでください。
@@ -85,7 +87,7 @@ def synthesize_audio(script_text, output_filepath):
     print("🎵 すべてのパートの統合および音声ファイルの生成が完了しました！")
 
 # --- タスク2-4: アーカイブ管理＆RSSフィード生成モジュール ---
-def manage_episodes_and_rss(script_text, topic, new_mp3_filename, image_filename="podcast-art.png"):
+def manage_episodes_and_rss(script_text, new_mp3_filename, image_filename="podcast-art.png"):
     print("📻 エピソード履歴の更新とRSSフィード(feed.xml)を生成中...")
     
     repo_env = os.getenv("GITHUB_REPOSITORY")
@@ -97,7 +99,7 @@ def manage_episodes_and_rss(script_text, topic, new_mp3_filename, image_filename
         
     base_url = f"https://{github_username}.github.io/{repo_name}"
     
-    now = datetime.datetime.now()
+    now = datetime.datetime.now(JST) # 日本時間を取得
     today_str = now.strftime("%Y年%m月%d日")
     pub_date = formatdate(localtime=False) 
     
@@ -105,8 +107,6 @@ def manage_episodes_and_rss(script_text, topic, new_mp3_filename, image_filename
     if os.path.exists(history_file):
         with open(history_file, "r", encoding="utf-8") as f:
             episodes = json.load(f)
-            for ep in episodes:
-                ep["title"] = ep["title"].replace(f"（{topic}）", "").replace(f"({topic})", "").replace("（SAP関連）", "").replace("(SAP)", "").strip()
     else:
         episodes = []
         
@@ -161,35 +161,47 @@ def manage_episodes_and_rss(script_text, topic, new_mp3_filename, image_filename
 
 # --- メイン処理 ---
 if __name__ == "__main__":
-    # ==========================================
-    # ⚙️ 設定エリア
-    # ==========================================
-    TARGET_TOPIC_KEYWORD = "SAP"   
-    DISPLAY_TOPIC_NAME   = "SAP関連" 
-    IMAGE_FILE_NAME      = "podcast-art.png" 
-    # ==========================================
+    IMAGE_FILE_NAME = "podcast-art.png" 
+
+    # ★追加: 日本時間の曜日を取得し、今日の検索テーマを決定する
+    now_jst = datetime.datetime.now(JST)
+    weekday = now_jst.weekday() # 0:月, 1:火, 2:水, 3:木, 4:金, 5:土, 6:日
+    
+    daily_topics = {
+        0: "SAP関連",
+        1: "コンサル業界関連",
+        2: "AI関連",
+        3: "海外IT業界関連",
+        4: "日本国内IT業界関連",
+        5: "ビジネスパーソンが知っておくべき最新の海外",
+        6: "ビジネスパーソンが知っておくべき最新の日本国内"
+    }
+    
+    # 今日のテーマを決定
+    TARGET_TOPIC_KEYWORD = daily_topics[weekday]
+    print(f"📅 本日（{now_jst.strftime('%A')}）の配信テーマ: {TARGET_TOPIC_KEYWORD}ニュース")
 
     os.makedirs("public", exist_ok=True)
     
-    now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    # ファイル名にも日本時間を適用
+    now_str = now_jst.strftime("%Y%m%d_%H%M%S")
     new_mp3_filename = f"podcast_{now_str}.mp3"
     output_filepath = f"public/{new_mp3_filename}"
 
-    # 1. Gemini Proで検索から台本（本編）作成までを一撃で実行
+    # 1. 決定したテーマを渡してGemini Proで原稿作成
     body_text = generate_podcast_script_via_pro(query=TARGET_TOPIC_KEYWORD, limit=5)
     
-    # 2. 定型文（挨拶など）をPython側で完全固定してドッキング
-    today = datetime.datetime.now()
-    date_str = f"{today.month}月{today.day}日"
+    # 2. 定型文（挨拶など）を生成
+    date_str = f"{now_jst.month}月{now_jst.day}日"
     
+    # 音声の冒頭文（テーマ名はあえて入れず、日付のみでスッキリさせる仕様を維持）
     opening = f"{date_str}のニュースをお伝えします。\n\n"
     closing = "\n\nそれでは、今日も一日頑張りましょう。いってらっしゃい！"
     
-    # 最終的な台本テキストを完成させる
     final_script_text = opening + body_text + closing
 
     # 音声合成とアーカイブ管理を実行
     synthesize_audio(final_script_text, output_filepath=output_filepath)
-    manage_episodes_and_rss(script_text=final_script_text, topic=DISPLAY_TOPIC_NAME, new_mp3_filename=new_mp3_filename, image_filename=IMAGE_FILE_NAME)
+    manage_episodes_and_rss(script_text=final_script_text, new_mp3_filename=new_mp3_filename, image_filename=IMAGE_FILE_NAME)
     
     print("🎉 スマート化されたすべての処理が完了しました！")
