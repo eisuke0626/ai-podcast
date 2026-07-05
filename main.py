@@ -17,7 +17,6 @@ def get_latest_news_via_gemini(query="SAP", limit=5):
     print(f"🤖 Gemini Proが「{query}」に関する最新ニュースをWeb検索中...")
     client = genai.Client(api_key=gemini_key)
     
-    # 改善点: 台本の長文化に合わせて、ニュースの背景や詳細、影響なども詳しく抽出するように指示を変更
     prompt = f"""
     最新の「{query}」に関するニュース、技術アップデート、プレスリリース、または重要な動向を検索してください。
     検索結果から、特に重要と思われるトピックを最大{limit}個選んでください。
@@ -42,7 +41,6 @@ def generate_podcast_script(news_text, topic="SAP関連"):
     today = datetime.datetime.now()
     date_str = f"{today.month}月{today.day}日"
     
-    # 改善点: 文字数制限を「1000〜1200文字程度（約3〜4分枠）」に拡大し、詳細に解説するよう指示
     system_instruction = f"""
     あなたはプロのラジオパーソナリティです。
     提供された豊富なニュース素材をもとに、リスナーが朝の通勤中や作業の準備中に聴き応えを感じられるポッドキャストの台本を作成してください。
@@ -63,24 +61,58 @@ def generate_podcast_script(news_text, topic="SAP関連"):
     )
     return response.text
 
-# --- タスク2-3: 音声化(Google TTS)モジュール ---
+# --- タスク2-3: 音声化(Google TTS)モジュール（5000バイト制限突破版） ---
 def synthesize_audio(script_text, output_filepath):
     print(f"🎙️ ラジオパーソナリティが音声を収録中（Google TTS）: {output_filepath}")
     client = texttospeech.TextToSpeechClient()
-    synthesis_input = texttospeech.SynthesisInput(text=script_text)
-    voice = texttospeech.VoiceSelectionParams(
-        language_code="ja-JP",
-        name="ja-JP-Neural2-B" 
-    )
-    audio_config = texttospeech.AudioConfig(
-        audio_encoding=texttospeech.AudioEncoding.MP3
-    )
-    response = client.synthesize_speech(
-        input=synthesis_input, voice=voice, audio_config=audio_config
-    )
+    
+    # 5,000バイト制限を絶対に超えないよう、安全を見て「1リクエストあたり1,000文字」で区切る
+    max_chars = 1000
+    
+    # 句点「。」で原稿を区切り、1000文字以下に収まるようにチャンク（塊）を生成
+    sentences = script_text.split("。")
+    chunks = []
+    current_chunk = ""
+    
+    for sentence in sentences:
+        if not sentence.strip():
+            continue
+        # 分割時に消えた句点「。」を復元
+        test_sentence = sentence + "。"
+        
+        # 現在の塊に足すと1000文字を超える場合は、そこで一旦区切る
+        if len(current_chunk) + len(test_sentence) > max_chars:
+            chunks.append(current_chunk)
+            current_chunk = test_sentence
+        else:
+            current_chunk += test_sentence
+            
+    if current_chunk:
+        chunks.append(current_chunk)
+        
+    # 分割したテキストを順次APIに送り、バイナリを結合していく
+    combined_audio_content = b""
+    
+    for idx, chunk in enumerate(chunks):
+        print(f"  🔊 音声化処理中... パート {idx+1}/{len(chunks)} ({len(chunk)}文字)")
+        synthesis_input = texttospeech.SynthesisInput(text=chunk)
+        voice = texttospeech.VoiceSelectionParams(
+            language_code="ja-JP",
+            name="ja-JP-Neural2-B" 
+        )
+        audio_config = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.MP3
+        )
+        response = client.synthesize_speech(
+            input=synthesis_input, voice=voice, audio_config=audio_config
+        )
+        # バイナリデータ（bytes）を末尾に結合
+        combined_audio_content += response.audio_content
+        
+    # 最終的に合体したすべての音声データをファイルとして書き出す
     with open(output_filepath, "wb") as out:
-        out.write(response.audio_content)
-    print("🎵 音声ファイルの生成が完了しました！")
+        out.write(combined_audio_content)
+    print("🎵 すべてのパートの統合および音声ファイルの生成が完了しました！")
 
 # --- タスク2-4: アーカイブ管理＆RSSフィード生成モジュール ---
 def manage_episodes_and_rss(script_text, topic, new_mp3_filename, image_filename="podcast-art.png"):
